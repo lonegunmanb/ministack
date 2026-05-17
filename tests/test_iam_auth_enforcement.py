@@ -29,6 +29,8 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+pytestmark = pytest.mark.serial
+
 ENDPOINT = os.environ.get("MINISTACK_ENDPOINT", "http://localhost:4566")
 REGION = "us-east-1"
 
