@@ -34,6 +34,7 @@ import json
 import os
 import uuid
 from urllib.parse import parse_qs
+from xml.sax.saxutils import escape as _xml_escape
 
 # ---------------------------------------------------------------------------
 # Module-level runtime flag — can be toggled via /_ministack/config.
@@ -171,14 +172,29 @@ def _policy_allows(user_policies: dict, service_action: str) -> bool:
     return allow_match
 
 
-def _xml_403(code: str, message: str) -> tuple:
-    """Build a 403 XML error response in IAM-namespace format."""
+def _xml_403(code: str, message: str, service: str) -> tuple:
+    """Build a 403 XML error response in the requested service's format."""
+    safe_code = _xml_escape(code)
+    safe_message = _xml_escape(message)
+    if service == "ec2":
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            "<Response>\n"
+            "  <Errors><Error>\n"
+            f"    <Code>{safe_code}</Code>\n"
+            f"    <Message>{safe_message}</Message>\n"
+            "  </Error></Errors>\n"
+            f"  <RequestID>{uuid.uuid4()}</RequestID>\n"
+            "</Response>"
+        )
+        return 403, {"Content-Type": "application/xml"}, body.encode()
+
     body = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<ErrorResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">\n'
         "  <Error>\n"
-        f"    <Code>{code}</Code>\n"
-        f"    <Message>{message}</Message>\n"
+        f"    <Code>{safe_code}</Code>\n"
+        f"    <Message>{safe_message}</Message>\n"
         "  </Error>\n"
         f"  <RequestId>{uuid.uuid4()}</RequestId>\n"
         "</ErrorResponse>"
@@ -239,12 +255,14 @@ def check_request(
         return _xml_403(
             "InvalidClientTokenId",
             "The security token included in the request is invalid.",
+            service,
         )
 
     if key_record.get("Status") != "Active":
         return _xml_403(
             "InvalidClientTokenId",
             "The security token included in the request has been revoked.",
+            service,
         )
 
     user_name = key_record.get("UserName", "")
@@ -255,6 +273,7 @@ def check_request(
         return _xml_403(
             "InvalidClientTokenId",
             "The user associated with this security token no longer exists.",
+            service,
         )
 
     # Stash the resolved user name for downstream consumers (e.g. GetUser).
@@ -284,6 +303,7 @@ def check_request(
             "AccessDenied",
             f"User: arn:aws:iam::{account_id}:user/{user_name} is not authorized "
             f"to perform: {action} (no policies attached)",
+            service,
         )
 
     if _policy_allows(user_policies, action):
@@ -293,4 +313,5 @@ def check_request(
         "AccessDenied",
         f"User: arn:aws:iam::{account_id}:user/{user_name} is not authorized "
         f"to perform: {action}",
+        service,
     )
