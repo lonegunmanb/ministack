@@ -59,6 +59,16 @@ async def handle_request(method, path, headers, body, query_params):
                 if access_key in _sessions:
                     caller_arn = _sessions[access_key]["Arn"]
                     caller_user_id = _sessions[access_key]["UserId"]
+                else:
+                    # Try IAM-created access keys (not AssumeRole sessions).
+                    from ministack.services.iam import _access_keys, _users  # noqa: PLC0415
+                    key_record = _access_keys.get(access_key)
+                    if key_record:
+                        user_name = key_record.get("UserName", "")
+                        user = _users.get(user_name) if user_name else None
+                        if user:
+                            caller_arn = user["Arn"]
+                            caller_user_id = user["UserId"]
             except Exception:
                 pass
         if use_json:

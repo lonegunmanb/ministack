@@ -735,6 +735,7 @@ async def _handle_admin_config_request(path: str, method: str, body: bytes):
         "stepfunctions._SFN_WAIT_SCALE",
         "lambda_svc.LAMBDA_EXECUTOR",
         "cloudtrail._recording_enabled",
+        "iam_auth.ENFORCE_IAM",
     }
     try:
         config = json.loads(body) if body else {}
@@ -763,6 +764,8 @@ async def _handle_admin_config_request(path: str, method: str, body: bytes):
                     continue
                 value = float_value
             elif key == "cloudtrail._recording_enabled":
+                value = str(value).lower() in ("1", "true", "yes")
+            elif key == "iam_auth.ENFORCE_IAM":
                 value = str(value).lower() in ("1", "true", "yes")
             setattr(mod, var_name, value)
             applied[key] = value
@@ -1381,6 +1384,21 @@ async def _dispatch_service_request(
     region = extract_region(headers)
 
     logger.debug("%s %s -> service=%s region=%s", method, path, service, region)
+
+    # IAM auth enforcement (opt-in via ENFORCE_IAM=1).
+    # Runs after body parsing so we can inspect the request Action.
+    from ministack.services import iam_auth as _iam_auth  # noqa: PLC0415
+    auth_error = _iam_auth.check_request(service, method, path, headers, body, query_params)
+    if auth_error is not None:
+        err_status, err_headers, err_body = auth_error
+        err_headers.update(
+            {
+                "Access-Control-Allow-Origin": "*",
+                "x-amzn-requestid": request_id,
+                "x-amz-request-id": request_id,
+            }
+        )
+        return err_status, err_headers, err_body
 
     handler = SERVICE_HANDLERS.get(service)
     if not handler:

@@ -4,10 +4,17 @@ on:
   push:
     tags:
       - "v*.*.*"
+    branches:
+      - main
 
 env:
   DOCKERHUB_IMAGE: nahuelnucera/ministack
   DOCKERHUB_IMAGE_ORG: ministackorg/ministack
+  GHCR_IMAGE: ghcr.io/lonegunmanb/ministack
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   publish:
@@ -23,10 +30,18 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # ── Regular (Alpine) image — :latest, :{version}, :{major}.{minor} ──
       - name: Extract metadata (regular)
@@ -34,12 +49,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.DOCKERHUB_IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE_ORG }}
+            ${{ startsWith(github.ref, 'refs/tags/') && env.DOCKERHUB_IMAGE || '' }}
+            ${{ startsWith(github.ref, 'refs/tags/') && env.DOCKERHUB_IMAGE_ORG || '' }}
+            ${{ env.GHCR_IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push (regular)
         uses: docker/build-push-action@v5
@@ -65,14 +83,17 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.DOCKERHUB_IMAGE }}
-            ${{ env.DOCKERHUB_IMAGE_ORG }}
+            ${{ startsWith(github.ref, 'refs/tags/') && env.DOCKERHUB_IMAGE || '' }}
+            ${{ startsWith(github.ref, 'refs/tags/') && env.DOCKERHUB_IMAGE_ORG || '' }}
+            ${{ env.GHCR_IMAGE }}
           flavor: |
             latest=false
           tags: |
             type=semver,pattern={{version}},suffix=-full
             type=semver,pattern={{major}}.{{minor}},suffix=-full
-            type=raw,value=full
+            type=raw,value=full,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=main-full,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,suffix=-full,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push (full)
         uses: docker/build-push-action@v5
