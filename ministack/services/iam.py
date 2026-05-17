@@ -352,6 +352,17 @@ def _create_user(p):
 def _get_user(p):
     name = _p(p, "UserName")
     if not name:
+        # In strict IAM mode, return the currently signed-in IAM user.
+        # Vault / Terraform use this path to validate credentials.
+        try:
+            from ministack.services.iam_auth import get_request_iam_user
+            current_user = get_request_iam_user()
+            if current_user and current_user in _users:
+                return _xml(200, "GetUserResponse",
+                            f"<GetUserResult><User>{_user_xml(current_user)}</User></GetUserResult>",
+                            ns="iam")
+        except ImportError:
+            pass
         return _xml(200, "GetUserResponse",
                     "<GetUserResult><User>"
                     f"<UserName>root</UserName>"
